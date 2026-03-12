@@ -2,138 +2,164 @@
 
 ## Project Overview
 
-Conversational operations system that replaces spreadsheet-based workflows with GitHub Issues as a structured data store, managed via a CLI conversational agent backed by an LLM (Groq).
+Conversational operations system that replaces spreadsheet-based workflows with GitHub Issues as a structured data store, managed via a CLI, Slack bot, and Web UI — all backed by an LLM (Groq).
 
-**Core principle:** GitHub = database. YAML = schema. LLM = parser. CLI = UI.
+**Core principle:** GitHub = database. YAML = schema. LLM = parser. CLI/Slack/Web = UI.
 
-## Architecture
+## Full Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                          CLI (src/cli.ts)                        │
-│   --config templates/X.yaml    [--run "single shot command"]     │
-└─────────────────────────────┬───────────────────────────────────┘
-                              │
-┌─────────────────────────────▼───────────────────────────────────┐
-│                    Agent Orchestrator (src/agent/index.ts)       │
-│                                                                  │
-│   ┌────────────────┐    ┌─────────────────┐                     │
-│   │ prompt-builder │    │ tool-registry   │                     │
-│   │ (system prompt)│    │ (name→handler)  │                     │
-│   └────────────────┘    └─────────────────┘                     │
-└──────────────┬──────────────────────┬──────────────────────────┘
-               │                      │
-┌──────────────▼──────────┐  ┌───────▼──────────────────────────┐
-│   LLM Client (Groq)     │  │   Tools (src/tools/)             │
-│                         │  │                                   │
-│  ┌─────────────────┐    │  │  create-item   update-item       │
-│  │ key-rotation.ts │    │  │  list-items    log-activity      │
-│  │ (round-robin)   │    │  │  calculate     report            │
-│  └─────────────────┘    │  │  help                            │
-└─────────────────────────┘  └──────────────┬───────────────────┘
-                                            │
-                             ┌──────────────▼──────────────────┐
-                             │   GitHub Client (Octokit)        │
-                             │                                  │
-                             │  issues.ts  labels.ts           │
-                             │  comments.ts  client.ts         │
-                             └──────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  CLIENTS                                                              │
+│                                                                       │
+│  CLI (src/cli.ts)         Slack (#sales-ops)      Web (web/)         │
+│  npx tsx src/cli.ts        reads ALL messages      Next.js 15        │
+│  --config sales.yaml       channel → config        Vercel            │
+└────────────┬───────────────────────┬──────────────────┬─────────────┘
+             │                       │                  │
+             └───────────────────────┼──────────────────┘
+                                     │
+┌────────────────────────────────────▼────────────────────────────────┐
+│  RAILWAY (persistent Node.js — src/start.ts)                         │
+│                                                                       │
+│  ┌─────────────────────────┐   ┌──────────────────────────────────┐  │
+│  │  Slack Bolt (Socket)    │   │  Express API                     │  │
+│  │  handler.ts             │   │  POST /api/chat (SSE stream)     │  │
+│  │  channel → config       │   │  GET  /api/configs               │  │
+│  │  classify → agent       │   │  GET  /api/pipeline/:c/items     │  │
+│  │  thread reply           │   │  POST /api/reset                 │  │
+│  └────────────┬────────────┘   └────────────────┬─────────────────┘  │
+│               └──────────────┬─────────────────┘                    │
+│                               │                                      │
+│  ┌────────────────────────────▼──────────────────────────────────┐  │
+│  │  Agent Orchestrator (src/agent/index.ts)                       │  │
+│  │  user input → LLM → tool calls → tool results → LLM → output │  │
+│  │                                                                │  │
+│  │  ┌──────────────┐  ┌─────────────────┐  ┌──────────────────┐ │  │
+│  │  │ prompt-builder│  │ tool-registry   │  │  7 tools         │ │  │
+│  │  │ system prompt │  │ name → handler  │  │  create/update/  │ │  │
+│  │  └──────────────┘  └─────────────────┘  │  list/log/calc/  │ │  │
+│  │                                          │  report/help     │ │  │
+│  └──────────────────────────────────────────┴──────────────────┘  │
+│                               │                                      │
+│  ┌────────────────────────────▼──────────────────────────────────┐  │
+│  │  LLM Client (Groq via OpenAI SDK)   GitHub Client (Octokit)   │  │
+│  │  key-rotation.ts (round-robin)      issues / labels / comments │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
+                               │
+              ┌────────────────┴────────────────┐
+              ▼                                 ▼
+     GitHub Issues                           Groq API
+     (data store)                          (LLM inference)
 ```
 
 ## Directory Structure
 
 ```
 conversational-ops/
-├── CLAUDE.md                   ← You are here
+├── CLAUDE.md                    ← You are here
 ├── README.md
-├── .env.example                ← Copy to .env and fill in keys
+├── railway.toml                 ← Railway deployment config
+├── .env.example
 ├── package.json
 ├── tsconfig.json
 ├── vitest.config.ts
 │
 ├── src/
-│   ├── cli.ts                  # REPL entry point
+│   ├── cli.ts                   # REPL entry point
+│   ├── start.ts                 # Combined Railway entry (Express + Slack)
+│   │
 │   ├── agent/
-│   │   ├── index.ts            # Orchestrator loop
-│   │   ├── prompt-builder.ts   # System prompt generation
-│   │   └── tool-registry.ts    # Tool name → handler map
+│   │   ├── index.ts             # Orchestrator loop (LLM + tool dispatch)
+│   │   ├── prompt-builder.ts    # System prompt from config
+│   │   └── tool-registry.ts     # Tool name → handler map
+│   │
 │   ├── llm/
-│   │   ├── client.ts           # Groq (OpenAI-compat) wrapper
-│   │   ├── key-rotation.ts     # Round-robin key manager
-│   │   └── types.ts            # LLMMessage, ToolCall, etc.
+│   │   ├── client.ts            # Groq (OpenAI-compat) with retry
+│   │   ├── key-rotation.ts      # Round-robin GROQ_API_KEY_1..N
+│   │   └── types.ts             # LLMMessage, ToolCall, LLMResponse
+│   │
 │   ├── github/
-│   │   ├── client.ts           # Octokit singleton
-│   │   ├── issues.ts           # CRUD for issues
-│   │   ├── labels.ts           # Label management
-│   │   └── comments.ts         # Comment operations
-│   ├── tools/                  # LLM-callable tools
-│   │   ├── create-item.ts
-│   │   ├── update-item.ts
-│   │   ├── list-items.ts
-│   │   ├── log-activity.ts
-│   │   ├── calculate.ts
-│   │   └── report.ts
+│   │   ├── client.ts            # Octokit singleton
+│   │   ├── issues.ts            # CRUD for issues
+│   │   ├── labels.ts            # Label management
+│   │   └── comments.ts          # Comment operations
+│   │
+│   ├── tools/                   # LLM-callable tools (OpenAI function format)
+│   │   ├── create-item.ts       # create_item
+│   │   ├── update-item.ts       # update_item
+│   │   ├── list-items.ts        # list_items
+│   │   ├── log-activity.ts      # log_activity
+│   │   ├── calculate.ts         # calculate
+│   │   └── report.ts            # report
+│   │
 │   ├── config/
-│   │   ├── loader.ts           # YAML load + validation
-│   │   └── types.ts            # PipelineConfig type definitions
-│   └── scheduler/
-│       └── index.ts            # Staleness checker
+│   │   ├── loader.ts            # YAML load + env interpolation + validation
+│   │   └── types.ts             # PipelineConfig, Field, Stage, Calculation, Report
+│   │
+│   ├── slack/
+│   │   ├── app.ts               # Standalone Slack bot entry point
+│   │   ├── handler.ts           # message → classify → agent → thread reply
+│   │   └── channel-map.ts       # #channel → templates/X.yaml mapping
+│   │
+│   └── server/
+│       └── index.ts             # Express API (used by web UI)
 │
-├── templates/                  # Plug-and-play use-case configs
+├── templates/                   # Plug-and-play pipeline configs
 │   ├── sales.yaml
 │   ├── hiring.yaml
 │   ├── customer-success.yaml
 │   ├── investor.yaml
 │   └── partnership.yaml
 │
-└── tests/
-    ├── calculator.test.ts
-    ├── config-loader.test.ts
-    └── agent.test.ts
+├── web/                         # Next.js 15 web UI (deployed to Vercel)
+│   ├── package.json
+│   ├── next.config.ts
+│   ├── app/
+│   │   ├── layout.tsx
+│   │   ├── page.tsx             # Redirects to /sales
+│   │   └── [pipeline]/page.tsx  # Main pipeline page
+│   ├── components/
+│   │   ├── Sidebar.tsx          # Pipeline nav + stage bar charts
+│   │   └── ChatPanel.tsx        # SSE chat + suggestion chips
+│   └── lib/
+│       └── api.ts               # Fetch wrappers for Railway API
+│
+├── tests/
+│   ├── calculator.test.ts
+│   ├── config-loader.test.ts
+│   └── agent.test.ts
+│
+└── docs/
+    ├── journey.md               # Build story + decisions
+    ├── trade-offs.md            # All trade-offs considered
+    └── adr/                     # Architecture Decision Records
+        ├── 001-github-issues-as-database.md
+        ├── 002-groq-openai-compatible-llm.md
+        ├── 003-slack-channel-per-pipeline.md
+        ├── 004-deployment-railway-vercel.md
+        └── 005-yaml-config-as-schema.md
 ```
 
 ## Database Schema (GitHub Issues)
 
-Each pipeline item is a GitHub Issue with:
-
 ```
-Title:  <item name>          ← Searchable, display name
-Labels: stage:<stage-name>   ← Current stage; also "stale" if flagged
-Body:   ## <Config Name> Item
-        **Stage:** <stage>
-        **Owner:** @<username>
+Issue Title:   <item name>
+Issue Labels:  stage:<stage-name>   [one per issue]
+               stale                [if staleness check fires]
+Issue Body:
+  ## <Pipeline Name> Item
 
-        ### Fields
-        - **field_name:** value    ← Parsed by calculate tool
+  **Stage:** <stage name>
+  **Owner:** @<github-username>
 
-Comments: Activity log (calls, meetings, notes, status updates)
+  ### Fields
+  - **field_name:** value    ← parsed by calculate tool via regex
+
+Issue Comments:  Activity log (calls, meetings, notes, updates)
+Issue Assignees: Pipeline owners/reps
 ```
-
-## Key Design Decisions
-
-1. **GitHub Issues as DB** — No external DB. Issues are the source of truth.
-2. **Body parsing for fields** — Field values live in the issue body as markdown. The `calculate` tool uses regex to extract them.
-3. **Label-based stage tracking** — Stages are `stage:*` labels. Only one stage label per issue.
-4. **OpenAI-compatible SDK on Groq** — Using the `openai` npm package pointed at Groq's base URL.
-5. **Key rotation** — Round-robin across `GROQ_API_KEY_1..N` with auto-rotate on 429.
-
-## Enforcement Rules (MANDATORY)
-
-**After every action or change:**
-1. Update this CLAUDE.md if the architecture, directory structure, or design decisions change
-2. Update README.md if setup instructions or CLI usage changes
-3. Update `src/config/types.ts` if the config schema changes
-4. Add/update tests if tool logic changes
-
-**When adding a new tool:**
-1. Create `src/tools/<tool-name>.ts` with definition + handler
-2. Register it in `src/agent/tool-registry.ts`
-3. Update the tools table in README.md
-
-**When adding a new template:**
-1. Place it in `templates/<name>.yaml`
-2. Add it to the templates table in README.md
-3. Add a test case in `tests/config-loader.test.ts`
 
 ## Environment Variables
 
@@ -142,22 +168,69 @@ Comments: Activity log (calls, meetings, notes, status updates)
 | `GROQ_API_KEY_1` | Yes | First Groq API key |
 | `GROQ_API_KEY_2..N` | No | Additional keys for rotation |
 | `GITHUB_TOKEN` | Yes | GitHub PAT (repo + issues scopes) |
-| `GITHUB_OWNER` | No | Default GitHub owner (used in template `${GITHUB_OWNER}`) |
-| `GITHUB_REPO` | No | Default GitHub repo |
+| `GITHUB_OWNER` | No | Default owner for `${GITHUB_OWNER}` in templates |
+| `GITHUB_REPO` | No | Default repo for `${GITHUB_REPO}` in templates |
 | `GROQ_MODEL` | No | Model ID (default: llama-3.3-70b-versatile) |
+| `SLACK_BOT_TOKEN` | No | Slack bot token (xoxb-...) |
+| `SLACK_APP_TOKEN` | No | Slack app-level token (xapp-...) |
+| `CHANNEL_MAP` | No | `chan:template,chan:template` override |
+| `PORT` | No | Express API port (default: 3001) |
+| `WEB_ORIGIN` | No | Allowed CORS origin for the web UI |
+
+## Deployment
+
+| Service | What | Command |
+|---------|------|---------|
+| Railway | Slack bot + Express API | Auto-deploy via `railway.toml` on push |
+| Vercel | Next.js web UI | Auto-deploy via Vercel GitHub integration |
+
+## Enforcement Rules (MANDATORY)
+
+**After every action or change:**
+1. Update this CLAUDE.md if architecture, directory structure, or design decisions change
+2. Update `README.md` if setup instructions or CLI usage changes
+3. Update `docs/journey.md` with what changed and why
+4. Write an ADR in `docs/adr/` for any significant new decision
+5. Update `docs/trade-offs.md` if a trade-off is resolved or a new one accepted
+6. Add/update tests if tool logic changes
+
+**When adding a new tool:**
+1. Create `src/tools/<tool-name>.ts` with definition + handler
+2. Register in `src/agent/tool-registry.ts`
+3. Update tools table in `README.md`
+4. Add test case
+
+**When adding a new template:**
+1. Place in `templates/<name>.yaml`
+2. Add to templates table in `README.md`
+3. Add test case in `tests/config-loader.test.ts`
+4. Add default mapping in `src/slack/channel-map.ts`
+
+**When changing the config schema (`PipelineConfig`):**
+1. Update `src/config/types.ts`
+2. Update `src/config/loader.ts` validation
+3. Update all 5 templates if needed
+4. Update ADR 005
 
 ## Running Locally
 
 ```bash
-cp .env.example .env       # Fill in your keys
+# Backend (Slack + API)
+cp .env.example .env
 npm install
-npx tsx src/cli.ts --config templates/sales.yaml
+npm run dev:all     # Express API + Slack bot
+
+# Web UI (separate terminal)
+cd web
+cp .env.local.example .env.local
+npm install
+npm run dev         # http://localhost:3000
 ```
 
 ## Running Tests
 
 ```bash
-npm test                   # All tests
+npm test
 npx vitest run tests/config-loader.test.ts
 npx vitest run tests/calculator.test.ts
 npx vitest run tests/agent.test.ts
