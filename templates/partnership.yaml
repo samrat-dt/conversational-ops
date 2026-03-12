@@ -1,0 +1,71 @@
+name: Partnership Pipeline
+github:
+  owner: ${GITHUB_OWNER}
+  repo: ${GITHUB_REPO}
+fields:
+  - name: partner_type
+    type: enum
+    options: [Technology, Channel, Reseller, Integration, Strategic, OEM]
+    required: false
+  - name: estimated_revenue
+    type: number
+    required: false
+  - name: contract_value
+    type: number
+    required: false
+  - name: company_size
+    type: enum
+    options: [Enterprise, Mid-Market, SMB]
+    required: false
+  - name: contact_name
+    type: string
+    required: false
+  - name: agreement_date
+    type: date
+    required: false
+stages:
+  - name: Identified
+    label: stage:identified
+    probability: 0.1
+  - name: Outreach
+    label: stage:outreach
+    probability: 0.2
+  - name: Discovery
+    label: stage:discovery
+    probability: 0.35
+  - name: Scoping
+    label: stage:scoping
+    probability: 0.5
+  - name: Legal Review
+    label: stage:legal-review
+    probability: 0.75
+  - name: Active
+    label: stage:active
+    probability: 1.0
+  - name: Closed
+    label: stage:closed
+    probability: 0.0
+calculations:
+  - name: pipeline_value
+    description: Total estimated revenue from active partnerships
+    formula: estimated_revenue
+    aggregate: sum
+  - name: weighted_revenue
+    description: Probability-weighted pipeline revenue
+    formula: estimated_revenue * probability
+    aggregate: sum
+  - name: active_partners
+    description: Number of active partnerships
+    formula: stage == 'Active'
+    aggregate: count
+  - name: avg_contract_value
+    description: Average contract value of signed partnerships
+    formula: contract_value
+    aggregate: average
+reports:
+  - name: Partnership Dashboard
+    calculations: [pipeline_value, weighted_revenue, active_partners, avg_contract_value]
+staleness:
+  days: 14
+  action: comment
+  message: "No partnership activity in 14 days — check in on progress."

@@ -1,0 +1,58 @@
+name: Customer Success
+github:
+  owner: ${GITHUB_OWNER}
+  repo: ${GITHUB_REPO}
+fields:
+  - name: arr
+    type: number
+    required: true
+  - name: health_score
+    type: number
+    required: false
+  - name: contract_end_date
+    type: date
+    required: false
+  - name: tier
+    type: enum
+    options: [Enterprise, Mid-Market, SMB, Startup]
+    required: false
+  - name: nps_score
+    type: number
+    required: false
+stages:
+  - name: Onboarding
+    label: stage:onboarding
+  - name: Active
+    label: stage:active
+  - name: At Risk
+    label: stage:at-risk
+  - name: Churned
+    label: stage:churned
+  - name: Renewed
+    label: stage:renewed
+  - name: Expansion
+    label: stage:expansion
+calculations:
+  - name: total_arr
+    description: Total ARR across all active accounts
+    formula: arr
+    aggregate: sum
+  - name: avg_health_score
+    description: Average health score across accounts
+    formula: health_score
+    aggregate: average
+  - name: at_risk_count
+    description: Number of at-risk accounts
+    formula: stage == 'At Risk'
+    aggregate: count
+  - name: churn_rate
+    description: Churned accounts as % of total
+    formula: stage == 'Churned'
+    aggregate: percent
+reports:
+  - name: CS Dashboard
+    calculations: [total_arr, avg_health_score, at_risk_count, churn_rate]
+staleness:
+  days: 14
+  action: comment
+  message: "No contact in 14 days — check in with customer."

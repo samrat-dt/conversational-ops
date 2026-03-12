@@ -1,0 +1,67 @@
+name: Investor Tracking
+github:
+  owner: ${GITHUB_OWNER}
+  repo: ${GITHUB_REPO}
+fields:
+  - name: check_size
+    type: number
+    required: false
+  - name: fund_name
+    type: string
+    required: true
+  - name: partner_name
+    type: string
+    required: false
+  - name: thesis_fit
+    type: enum
+    options: [Strong, Moderate, Weak, Unknown]
+    required: false
+  - name: stage_focus
+    type: enum
+    options: [Pre-Seed, Seed, Series A, Series B, Growth]
+    required: false
+  - name: intro_source
+    type: string
+    required: false
+stages:
+  - name: Target
+    label: stage:target
+    probability: 0.05
+  - name: Intro Requested
+    label: stage:intro-requested
+    probability: 0.1
+  - name: First Meeting
+    label: stage:first-meeting
+    probability: 0.2
+  - name: Due Diligence
+    label: stage:due-diligence
+    probability: 0.5
+  - name: Term Sheet
+    label: stage:term-sheet
+    probability: 0.8
+  - name: Closed
+    label: stage:closed
+    probability: 1.0
+  - name: Passed
+    label: stage:passed
+    probability: 0.0
+calculations:
+  - name: potential_raise
+    description: Total potential capital from active investors
+    formula: check_size
+    aggregate: sum
+  - name: weighted_raise
+    description: Probability-weighted potential raise
+    formula: check_size * probability
+    aggregate: sum
+  - name: conversion_rate
+    description: Investors who closed as % of total engaged
+    formula: stage == 'Closed'
+    aggregate: percent
+reports:
+  - name: Fundraise Dashboard
+    calculations: [potential_raise, weighted_raise, conversion_rate]
+staleness:
+  days: 10
+  action: comment
+  message: "No investor update in 10 days — follow up or update status."

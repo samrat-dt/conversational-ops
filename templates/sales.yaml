@@ -1,0 +1,64 @@
+name: Sales Pipeline
+github:
+  owner: ${GITHUB_OWNER}
+  repo: ${GITHUB_REPO}
+fields:
+  - name: value
+    type: number
+    required: true
+  - name: probability
+    type: number
+    required: true
+  - name: close_date
+    type: date
+    required: false
+  - name: source
+    type: enum
+    options: [Inbound, Outbound, Referral, Event]
+    required: false
+  - name: contact_name
+    type: string
+    required: false
+stages:
+  - name: Lead
+    label: stage:lead
+    probability: 0.1
+  - name: Qualified
+    label: stage:qualified
+    probability: 0.3
+  - name: Demo
+    label: stage:demo
+    probability: 0.5
+  - name: Negotiation
+    label: stage:negotiation
+    probability: 0.75
+  - name: Closed Won
+    label: stage:closed-won
+    probability: 1.0
+  - name: Closed Lost
+    label: stage:closed-lost
+    probability: 0.0
+calculations:
+  - name: weighted_pipeline
+    description: Sum of value * probability across open deals
+    formula: value * probability
+    aggregate: sum
+  - name: win_rate
+    description: "Closed Won / (Closed Won + Closed Lost)"
+    formula: stage == 'Closed Won'
+    aggregate: percent
+  - name: avg_deal_size
+    description: Average value of all open deals
+    formula: value
+    aggregate: average
+  - name: total_pipeline
+    description: Total unweighted pipeline value
+    formula: value
+    aggregate: sum
+reports:
+  - name: Pipeline Dashboard
+    calculations: [weighted_pipeline, win_rate, avg_deal_size, total_pipeline]
+staleness:
+  days: 7
+  action: comment
+  message: "No activity in 7 days — follow up needed."

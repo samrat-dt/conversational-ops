@@ -1,0 +1,61 @@
+name: Hiring Pipeline
+github:
+  owner: ${GITHUB_OWNER}
+  repo: ${GITHUB_REPO}
+fields:
+  - name: role
+    type: string
+    required: true
+  - name: source
+    type: enum
+    options: [LinkedIn, Referral, Job Board, Agency, Inbound]
+    required: false
+  - name: years_experience
+    type: number
+    required: false
+  - name: expected_salary
+    type: number
+    required: false
+  - name: location
+    type: string
+    required: false
+  - name: interview_date
+    type: date
+    required: false
+stages:
+  - name: Applied
+    label: stage:applied
+  - name: Screening
+    label: stage:screening
+  - name: Phone Interview
+    label: stage:phone-interview
+  - name: Technical
+    label: stage:technical
+  - name: Onsite
+    label: stage:onsite
+  - name: Offer
+    label: stage:offer
+  - name: Hired
+    label: stage:hired
+  - name: Rejected
+    label: stage:rejected
+calculations:
+  - name: total_candidates
+    description: Total active candidates in pipeline
+    formula: "1"
+    aggregate: count
+  - name: offer_rate
+    description: Candidates who reached Offer stage
+    formula: stage == 'Offer'
+    aggregate: percent
+  - name: avg_salary_expectation
+    description: Average expected salary across pipeline
+    formula: expected_salary
+    aggregate: average
+reports:
+  - name: Hiring Dashboard
+    calculations: [total_candidates, offer_rate, avg_salary_expectation]
+staleness:
+  days: 5
+  action: label
+  message: "Candidate has not been contacted in 5 days."
