@@ -21,24 +21,16 @@ export interface GitHubIssue {
   html_url: string;
 }
 
-function normalizeIssue(issue: {
-  number: number;
-  title: string;
-  body?: string | null;
-  state: string;
-  labels: Array<{ name?: string } | string>;
-  assignees?: Array<{ login?: string } | null>;
-  created_at: string;
-  updated_at: string;
-  html_url: string;
-}): GitHubIssue {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeIssue(issue: any): GitHubIssue {
   return {
     number: issue.number,
     title: issue.title,
     body: issue.body ?? null,
     state: issue.state,
-    labels: issue.labels.map(l => (typeof l === 'string' ? l : (l.name ?? ''))).filter(Boolean),
-    assignees: (issue.assignees ?? []).map(a => (a && typeof a === 'object' ? (a.login ?? '') : '')).filter(Boolean),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    labels: (issue.labels as any[]).map((l: any) => (typeof l === 'string' ? l : (l.name ?? ''))).filter(Boolean),
+    assignees: ((issue.assignees as Array<{ login?: string } | null> | null) ?? []).map(a => (a && typeof a === 'object' ? (a.login ?? '') : '')).filter(Boolean),
     created_at: issue.created_at,
     updated_at: issue.updated_at,
     html_url: issue.html_url,
