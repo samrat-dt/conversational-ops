@@ -1,39 +1,71 @@
 # Conversational Ops
 
-Replace spreadsheet-based operational workflows with a conversational CLI agent. GitHub Issues are the database, YAML is the schema, the LLM parses intent, and the CLI is the UI.
+Replace spreadsheet-based operational workflows with a conversational system. GitHub Issues are the database, YAML is the schema, the LLM parses intent, and the interface is CLI, Slack, or Web — your choice.
+
+**Core principle:** GitHub = database · YAML = schema · LLM = parser · CLI/Slack/Web = UI
 
 ```
-┌──────────────┐     natural language      ┌──────────────┐
-│   You (CLI)  │ ────────────────────────▶ │   LLM Agent  │
-│              │ ◀──────────────────────── │   (Groq)     │
-└──────────────┘     structured response   └──────┬───────┘
-                                                  │ tool calls
-                                           ┌──────▼───────┐
-                                           │  GitHub API  │
-                                           │  (Issues)    │
-                                           └──────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  INTERFACES                                                        │
+│  CLI (npx tsx src/cli.ts)   Slack (#sales-ops)   Web (Vercel)    │
+└────────────────────────────────┬─────────────────────────────────┘
+                                 │
+┌────────────────────────────────▼─────────────────────────────────┐
+│  RAILWAY (persistent Node.js)                                      │
+│  Express API  +  Slack Bolt (Socket Mode)                         │
+│  ↕ Agent (LLM tool-calling loop)                                  │
+└─────────────────────┬─────────────────────┬──────────────────────┘
+                      ↓                     ↓
+              GitHub Issues             Groq API
+              (data store)            (LLM inference)
 ```
 
-## Quick Start
+---
+
+## Quick Start — CLI
 
 ```bash
 git clone https://github.com/samrat-dt/conversational-ops
 cd conversational-ops
 npm install
-cp .env.example .env       # Fill in GROQ_API_KEY_1 and GITHUB_TOKEN
-```
-
-Start a pipeline REPL:
-```bash
+cp .env.example .env      # fill in GROQ_API_KEY_1 and GITHUB_TOKEN
 npx tsx src/cli.ts --config templates/sales.yaml
 ```
 
-Or run a single command:
+Single-shot mode:
 ```bash
-npx tsx src/cli.ts --config templates/hiring.yaml --run "Add candidate Jane Doe for Senior Engineer, source LinkedIn, stage Applied"
+npx tsx src/cli.ts --config templates/hiring.yaml \
+  --run "Add candidate Jane Doe, Senior Engineer, LinkedIn, Applied stage"
 ```
 
-## Available Templates
+---
+
+## Quick Start — Web UI
+
+```bash
+# Terminal 1: backend (API + Slack bot)
+npm run dev:all
+
+# Terminal 2: web UI
+cd web && npm install
+cp .env.local.example .env.local   # set NEXT_PUBLIC_API_URL=http://localhost:3001
+npm run dev
+# → http://localhost:3000
+```
+
+---
+
+## Interfaces
+
+| Interface | How to access | Best for |
+|-----------|--------------|----------|
+| **CLI** | `npx tsx src/cli.ts --config <template>` | Developers, power users |
+| **Slack** | Invite bot to `#sales-ops`, `#hiring-ops`, etc. | Teams already in Slack |
+| **Web UI** | Vercel deployment (see deployment guide) | Non-technical users, dashboards |
+
+---
+
+## Available Pipeline Templates
 
 | Template | Use Case | Key Fields |
 |----------|----------|-----------|
@@ -41,113 +73,153 @@ npx tsx src/cli.ts --config templates/hiring.yaml --run "Add candidate Jane Doe 
 | `hiring.yaml` | Recruiting tracker | role, source, years_experience, expected_salary |
 | `customer-success.yaml` | CS account management | arr, health_score, tier, nps_score |
 | `investor.yaml` | Fundraising tracker | check_size, fund_name, thesis_fit |
-| `partnership.yaml` | Partnership pipeline | partner_type, estimated_revenue, contract_value |
+| `partnership.yaml` | Business development | partner_type, estimated_revenue, contract_value |
 
-## Example Commands
+---
+
+## Example Commands (any interface)
 
 ```
-> Add deal "Acme Corp" worth 50000 at Demo stage, 60% probability
-> List all open deals
-> Move deal #5 to Negotiation stage
-> Log a call on deal #3: "Great meeting, sending proposal tomorrow"
-> Run weighted_pipeline calculation
-> Show the full pipeline report
-> Flag accounts with no activity in 14 days
+Add deal "Acme Corp" worth 50000 at Demo stage, 60% probability
+List all open deals
+Move deal #5 to Negotiation stage
+Log a call on #3: "Great meeting, sending proposal tomorrow"
+Run weighted_pipeline calculation
+Show the full pipeline report
+Flag accounts with no activity in 14 days
 ```
 
-## Available Tools
+---
+
+## Available Tools (LLM-callable)
 
 | Tool | Description |
 |------|-------------|
-| `create_item` | Create a new pipeline item (GitHub Issue + labels) |
+| `create_item` | Create a pipeline item (GitHub Issue + stage label) |
 | `update_item` | Change stage, fields, or owner on an existing item |
-| `list_items` | Query items by stage, owner, or staleness |
+| `list_items` | Query by stage, owner, or staleness |
 | `log_activity` | Add a comment (call log, meeting note, status update) |
-| `calculate` | Run a named formula from config on current items |
-| `report` | Generate a full ASCII dashboard summary |
-| `help` | List available stages, fields, and example commands |
+| `calculate` | Run a named formula from config across all items |
+| `report` | Generate full ASCII dashboard with stage counts + metrics |
+| `help` | List stages, fields, and example commands for current pipeline |
 
-## Creating Your Own Template
+---
 
-1. Copy an existing template: `cp templates/sales.yaml templates/my-use-case.yaml`
-2. Edit the YAML to define your fields, stages, calculations, and reports
-3. Run: `npx tsx src/cli.ts --config templates/my-use-case.yaml`
+## Slack — Channel-per-Pipeline
 
-### Template Structure
+The bot reads **all messages** in mapped channels. An LLM classification step decides: ops action or casual chat?
+
+- **Action** → agent runs → reply in thread
+- **Casual** → 👀 reaction → silence
+
+```
+Slack Workspace
+├── #sales-ops          → templates/sales.yaml
+├── #hiring-ops         → templates/hiring.yaml
+├── #cs-ops             → templates/customer-success.yaml
+├── #investor-ops       → templates/investor.yaml
+└── #partnerships-ops   → templates/partnership.yaml
+```
+
+Configure via env var: `CHANNEL_MAP=sales-ops:sales,hiring-ops:hiring,...`
+
+---
+
+## Creating a Custom Template
 
 ```yaml
 name: My Pipeline
 github:
-  owner: ${GITHUB_OWNER}      # uses .env value
+  owner: ${GITHUB_OWNER}
   repo: ${GITHUB_REPO}
-
 fields:
   - name: value
-    type: number               # string | number | date | enum
+    type: number        # string | number | date | enum
     required: true
-  - name: status
-    type: enum
-    options: [Hot, Warm, Cold]
-    required: false
-
 stages:
   - name: Lead
-    label: stage:lead          # applied as GitHub label
-    probability: 0.1           # optional, for weighted calculations
-
+    label: stage:lead
+    probability: 0.1
 calculations:
   - name: total_value
-    description: Sum of all deal values
-    formula: value             # field expressions, e.g. "value * probability"
-    aggregate: sum             # sum | average | count | percent
-
+    description: Sum of all values
+    formula: value
+    aggregate: sum      # sum | average | count | percent
 reports:
-  - name: My Dashboard
+  - name: Dashboard
     calculations: [total_value]
-
 staleness:
   days: 7
-  action: comment              # comment | label
+  action: comment       # comment | label
   message: "Follow up needed"
 ```
 
-## Staleness Checker
+---
 
-Run the staleness check standalone:
-```bash
-npx tsx -e "
-import 'dotenv/config';
-import { loadConfig } from './src/config/loader.js';
-import { runStalenessCheck } from './src/scheduler/index.js';
-const config = loadConfig('./templates/customer-success.yaml');
-await runStalenessCheck(config);
-"
-```
+## Deployment
 
-## Development
+See [`docs/deployment.md`](docs/deployment.md) for the full step-by-step guide.
 
-```bash
-npm test              # Run all tests
-npm run typecheck     # TypeScript type check
-npm run build         # Compile to dist/
-```
+**Short version:**
+- **Railway** — connects GitHub repo, auto-deploys via `railway.toml`. Runs Slack bot + Express API.
+- **Vercel** — import repo, set Root Directory = `web/`, set `NEXT_PUBLIC_API_URL`. Runs the web UI.
+
+Cost: ~$0–5/month total.
+
+---
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `GROQ_API_KEY_1` | Groq API key (required) |
-| `GROQ_API_KEY_2..N` | Additional keys for rotation (optional) |
-| `GITHUB_TOKEN` | GitHub PAT with `repo` and `issues` scopes |
-| `GITHUB_OWNER` | Default GitHub owner for template interpolation |
-| `GITHUB_REPO` | Default GitHub repo for template interpolation |
-| `GROQ_MODEL` | Groq model ID (default: `llama-3.3-70b-versatile`) |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GROQ_API_KEY_1` | Yes | Groq API key |
+| `GROQ_API_KEY_2..N` | No | Additional keys (round-robin rotation) |
+| `GITHUB_TOKEN` | Yes | GitHub PAT (repo + issues scopes) |
+| `GITHUB_OWNER` | Yes | GitHub username/org for template interpolation |
+| `GITHUB_REPO` | Yes | GitHub repo name |
+| `GROQ_MODEL` | No | Model ID (default: `llama-3.3-70b-versatile`) |
+| `SLACK_BOT_TOKEN` | Slack only | Bot OAuth token (`xoxb-...`) |
+| `SLACK_APP_TOKEN` | Slack only | App-level token (`xapp-...`) |
+| `CHANNEL_MAP` | No | Override channel→template mapping |
+| `PORT` | No | Express API port (default: 3001) |
+| `WEB_ORIGIN` | No | CORS origin for web UI |
+
+---
 
 ## Tech Stack
 
-- **Runtime:** Node.js 20+ / TypeScript
-- **LLM:** Groq (via OpenAI-compatible SDK) with multi-key rotation
-- **GitHub:** `@octokit/rest`
-- **Config:** `js-yaml`
-- **CLI:** Node.js `readline` REPL
-- **Tests:** Vitest
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| Runtime | Node.js 20+ / TypeScript | Type safety, npm ecosystem |
+| LLM | Groq via OpenAI-compatible SDK | ~300ms inference, swap-friendly |
+| GitHub | `@octokit/rest` | Stable, full-featured |
+| Config | `js-yaml` | Human-editable schema |
+| CLI | Node.js `readline` | Zero dependencies |
+| Slack | `@slack/bolt` Socket Mode | Persistent connection, no timeout |
+| Web | Next.js 15 + Tailwind | Vercel-native, fast to build |
+| API | Express + SSE | Streaming agent responses |
+| Tests | Vitest | Fast, ESM-native |
+
+---
+
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [`CLAUDE.md`](CLAUDE.md) | Full architecture, enforcement rules, env vars |
+| [`docs/journey.md`](docs/journey.md) | Build story, phase-by-phase decisions |
+| [`docs/trade-offs.md`](docs/trade-offs.md) | Every major trade-off with alternatives |
+| [`docs/deployment.md`](docs/deployment.md) | Step-by-step Railway + Slack + Vercel setup |
+| [`docs/roadmap-multi-tenant.md`](docs/roadmap-multi-tenant.md) | Next phase: per-client isolation |
+| [`docs/adr/`](docs/adr/) | Architecture Decision Records (001–005) |
+
+---
+
+## Tests
+
+```bash
+npm test                                      # all 18 tests
+npx vitest run tests/config-loader.test.ts   # YAML parsing
+npx vitest run tests/calculator.test.ts      # formula evaluation
+npx vitest run tests/agent.test.ts           # agent + tool dispatch
+```
